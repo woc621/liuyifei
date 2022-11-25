@@ -35,7 +35,7 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "d:/go/liuyifei/liuyifei.ini", "config file of logagent")
+	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "", "config file of logagent")
 	rootCmd.PersistentFlags().StringVarP(&platform, "platform", "p", "system", "platform name")
 	rootCmd.PersistentFlags().StringSliceVarP(&endpoints, "etcd", "e", []string{"172.16.1.200:2379"}, "etcd endpoints eg 172.16.1.200:2379")
 	//rootCmd.PersistentFlags().Int64VarP(&dialtimeout, "dialtimeout", "et", 5, "ETCD timeout /s")
