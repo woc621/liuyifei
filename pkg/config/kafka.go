@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/hpcloud/tail"

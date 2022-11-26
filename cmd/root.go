@@ -37,7 +37,7 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "d:/go/liuyifei/liuyifei.ini", "config file of logagent")
+	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "", "config file of logagent")
 	rootCmd.PersistentFlags().StringVarP(&platform, "platform", "p", "system", "platform name")
 	rootCmd.PersistentFlags().StringSliceVarP(&endpoints, "etcd", "e", []string{"172.16.1.200:2379"}, "etcd endpoints eg 172.16.1.200:2379")
 	rootCmd.PersistentFlags().StringVarP(&sendto, "sendto", "", "kafka", "logs sendto who")
@@ -202,7 +202,7 @@ func WatchEtcd(servicecfg *ServiceConfig) {
 				}
 				//删除之前的任务
 				if ctx, ok := servicecfg.CtxMap[string(event.Kv.Key)]; ok {
-					fmt.Println("删除之前的任务",ctx.Cancel)
+					fmt.Println("删除之前的任务", ctx.Cancel)
 					ctx.Cancel()
 					fmt.Printf("任务已取消%s%s\n", event.Kv.Key, event.Kv.Value)
 					delete(servicecfg.CtxMap, string(event.Kv.Key))
@@ -221,7 +221,7 @@ func WatchEtcd(servicecfg *ServiceConfig) {
 				}
 
 				newlineCh, err := config.ReadLogByTail(string(event.Kv.Value))
-				fmt.Println("通道状态",newlineCh)
+				fmt.Println("通道状态", newlineCh)
 				if err != nil {
 					fmt.Println("ReadLogByTail err:", err)
 					close(newlineCh)
