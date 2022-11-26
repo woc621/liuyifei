@@ -73,7 +73,7 @@ to quickly create a Cobra application.`,
 
 		//初始化kafkaclient
 		kafkaclient, err := config.GetClientKafka(cfg.Address)
-		defer kafkaclient.Close()
+		//defer kafkaclient.Close()
 		if err != nil {
 			log.Fatalf("连接kafka失败%v\n", err)
 		}
@@ -164,7 +164,7 @@ func SentMessage(ctx context.Context, serviceCfg *ServiceConfig, lineCh chan *ta
 	case "mysql":
 		fmt.Printf("发送日志到mysql功能暂未实现\n")
 	default:
-		go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
+		//go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
 	}
 }
 func StartSendMessage(servicecfg *ServiceConfig) {
@@ -181,6 +181,7 @@ func StartSendMessage(servicecfg *ServiceConfig) {
 			close(lineCh)
 			continue
 		}
+
 		SentMessage(ctx, servicecfg, lineCh)
 	}
 }
@@ -201,6 +202,7 @@ func WatchEtcd(servicecfg *ServiceConfig) {
 				}
 				//删除之前的任务
 				if ctx, ok := servicecfg.CtxMap[string(event.Kv.Key)]; ok {
+					fmt.Println("删除之前的任务",ctx.Cancel)
 					ctx.Cancel()
 					fmt.Printf("任务已取消%s%s\n", event.Kv.Key, event.Kv.Value)
 					delete(servicecfg.CtxMap, string(event.Kv.Key))
@@ -212,20 +214,21 @@ func WatchEtcd(servicecfg *ServiceConfig) {
 				}
 				servicecfg.LogCfg.LogPath[string(event.Kv.Key)] = string(event.Kv.Value)
 				//根据最新获取的etcd配置，执行任务
-				ctx, cancel := context.WithCancel(context.Background())
+				newctx, newcancel := context.WithCancel(context.Background())
 				servicecfg.CtxMap[string(event.Kv.Key)] = config.CtxS{
-					Ctx:    ctx,
-					Cancel: cancel,
+					Ctx:    newctx,
+					Cancel: newcancel,
 				}
 
-				lineCh, err := config.ReadLogByTail(string(event.Kv.Value))
+				newlineCh, err := config.ReadLogByTail(string(event.Kv.Value))
+				fmt.Println("通道状态",newlineCh)
 				if err != nil {
 					fmt.Println("ReadLogByTail err:", err)
-					close(lineCh)
+					close(newlineCh)
 					continue
 				}
 				fmt.Println(servicecfg.CtxMap, servicecfg.LogCfg.LogPath)
-				SentMessage(ctx, servicecfg, lineCh)
+				SentMessage(newctx, servicecfg, newlineCh)
 			}
 		}
 	}

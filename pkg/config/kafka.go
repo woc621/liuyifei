@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/hpcloud/tail"
@@ -27,17 +28,21 @@ func GetClientKafka(address []string) (client sarama.SyncProducer, err error) {
 	return
 }
 
-func (kafkaclient KafkaProducer) SendToKafka(ctx context.Context,topic string,lineCh chan *tail.Line) {
+func (kafkaclient KafkaProducer) SendToKafka(ctx context.Context, topic string, lineCh chan *tail.Line) {
 	kafkamsg := &sarama.ProducerMessage{}
 	kafkamsg.Topic = topic
+	fmt.Println("watch传给kafka的通道地址", lineCh)
+LABLE:
 	for {
+
 		select {
 		case <-ctx.Done():
-			fmt.Printf("ctx.Done cancel")
-			close(lineCh)
-			return
-		case data := <- lineCh:
-			kafkamsg.Value=sarama.StringEncoder(data.Text)
+			fmt.Println("ctx.Done cancel", lineCh)
+			//close(lineCh)
+			break LABLE
+		case data := <-lineCh:
+			kafkamsg.Value = sarama.StringEncoder(data.Text)
+			//fmt.Printf("我在这里kafka发送数据")
 			_, _, err := kafkaclient.Client.SendMessage(kafkamsg)
 			if err != nil {
 				fmt.Println("send msg failed, err:", err)
