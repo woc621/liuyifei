@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/hpcloud/tail"
 	"github.com/spf13/cobra"
 	etcdClient "go.etcd.io/etcd/clientv3"
 )
@@ -22,6 +23,7 @@ var (
 	endpoints   []string
 	dialtimeout int64
 	platform    string
+	sendto      string
 	address     []string
 )
 
@@ -35,10 +37,10 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "", "config file of logagent")
+	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "d:/go/liuyifei/liuyifei.ini", "config file of logagent")
 	rootCmd.PersistentFlags().StringVarP(&platform, "platform", "p", "system", "platform name")
 	rootCmd.PersistentFlags().StringSliceVarP(&endpoints, "etcd", "e", []string{"172.16.1.200:2379"}, "etcd endpoints eg 172.16.1.200:2379")
-	//rootCmd.PersistentFlags().Int64VarP(&dialtimeout, "dialtimeout", "et", 5, "ETCD timeout /s")
+	rootCmd.PersistentFlags().StringVarP(&sendto, "sendto", "", "kafka", "logs sendto who")
 	rootCmd.PersistentFlags().StringSliceVarP(&address, "address", "a", []string{"172.16.1.200:9092"}, "kafka address eg 192.168.1.1:9092")
 }
 
@@ -79,60 +81,68 @@ to quickly create a Cobra application.`,
 			Client: kafkaclient,
 		}
 
-		for key, filepath := range logcfg.LogPath {
-			//fmt.Println(key, filepath)
-			ctx, cancel := context.WithCancel(context.Background())
-			ctxmap[key] = config.CtxS{
-				Ctx:    ctx,
-				Cancel: cancel,
-			}
-			lineCh, err := config.ReadLogByTail(filepath)
-			if err != nil {
-				fmt.Printf("tail 失败err:%v", err)
-				close(lineCh)
-				continue
-			}
-			go kafkaproducer.SendToKafka(ctx, cfg.Platform, lineCh)
-		}
+		serviceCfg := &ServiceConfig{}
+		serviceCfg.Cfg = cfg
+		serviceCfg.EtcdCli = etcdcli
+		serviceCfg.CtxMap = ctxmap
+		serviceCfg.KafkaProducer = &kafkaproducer
+		serviceCfg.LogCfg = logcfg
+		StartSendMessage(serviceCfg)
+		WatchEtcd(serviceCfg)
+		// for key, filepath := range logcfg.LogPath {
+		// 	//fmt.Println(key, filepath)
+		// 	ctx, cancel := context.WithCancel(context.Background())
+		// 	ctxmap[key] = config.CtxS{
+		// 		Ctx:    ctx,
+		// 		Cancel: cancel,
+		// 	}
+		// 	lineCh, err := config.ReadLogByTail(filepath)
+		// 	if err != nil {
+		// 		fmt.Printf("tail 失败err:%v", err)
+		// 		close(lineCh)
+		// 		continue
+		// 	}
+		// 	go kafkaproducer.SendToKafka(ctx, cfg.Platform, lineCh)
+		// }
 
-		watchChan := etcdcli.Watch(context.Background(), fmt.Sprintf("/%s", cfg.Platform), etcdClient.WithPrefix())
-		for {
-			select {
-			case resp := <-watchChan:
-				for _, event := range resp.Events {
-					fi, err := os.Stat(string(event.Kv.Value))
-					if err != nil {
+		// watchChan := etcdcli.Watch(context.Background(), fmt.Sprintf("/%s", cfg.Platform), etcdClient.WithPrefix())
+		// for {
+		// 	select {
+		// 	case resp := <-watchChan:
+		// 		for _, event := range resp.Events {
+		// 			fi, err := os.Stat(string(event.Kv.Value))
+		// 			if err != nil {
 
-					} else {
-						if fi.IsDir() {
-							fmt.Printf("这是一个目录，请重新配置\n")
-							continue
-						}
-					}
-					//取消之前的任务
-					if ctx, ok := ctxmap[string(event.Kv.Key)]; ok {
-						ctx.Cancel()
-						fmt.Printf("任务已取消%s%s\n", event.Kv.Key, event.Kv.Value)
+		// 			} else {
+		// 				if fi.IsDir() {
+		// 					fmt.Printf("这是一个目录，请重新配置\n")
+		// 					continue
+		// 				}
+		// 			}
+		// 			//取消之前的任务
+		// 			if ctx, ok := ctxmap[string(event.Kv.Key)]; ok {
+		// 				ctx.Cancel()
+		// 				fmt.Printf("任务已取消%s%s\n", event.Kv.Key, event.Kv.Value)
 
-					}
-					logcfg.LogPath[string(event.Kv.Key)] = string(event.Kv.Value)
-					//根据最新获取的etcd配置，执行任务
-					ctx, cancel := context.WithCancel(context.Background())
-					ctxmap[string(event.Kv.Key)] = config.CtxS{
-						Ctx:    ctx,
-						Cancel: cancel,
-					}
+		// 			}
+		// 			logcfg.LogPath[string(event.Kv.Key)] = string(event.Kv.Value)
+		// 			//根据最新获取的etcd配置，执行任务
+		// 			ctx, cancel := context.WithCancel(context.Background())
+		// 			ctxmap[string(event.Kv.Key)] = config.CtxS{
+		// 				Ctx:    ctx,
+		// 				Cancel: cancel,
+		// 			}
 
-					lineCh, err := config.ReadLogByTail(string(event.Kv.Value))
-					if err != nil {
-						fmt.Println("ReadLogByTail err:", err)
-						close(lineCh)
-						continue
-					}
-					go kafkaproducer.SendToKafka(ctx, cfg.Platform, lineCh)
-				}
-			}
-		}
+		// 			lineCh, err := config.ReadLogByTail(string(event.Kv.Value))
+		// 			if err != nil {
+		// 				fmt.Println("ReadLogByTail err:", err)
+		// 				close(lineCh)
+		// 				continue
+		// 			}
+		// 			go kafkaproducer.SendToKafka(ctx, cfg.Platform, lineCh)
+		// 		}
+		// 	}
+		// }
 
 	},
 }
@@ -146,11 +156,87 @@ func Execute() {
 	}
 }
 
+func SentMessage(ctx context.Context, serviceCfg *ServiceConfig, lineCh chan *tail.Line) {
+	switch serviceCfg.Cfg.Sendto {
+	case "kafka":
+		fmt.Printf("发送日志到kafka\n")
+		go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
+	case "mysql":
+		fmt.Printf("发送日志到mysql功能暂未实现\n")
+	default:
+		go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
+	}
+}
+func StartSendMessage(servicecfg *ServiceConfig) {
+	for key, filepath := range servicecfg.LogCfg.LogPath {
+		//fmt.Println(key, filepath)
+		ctx, cancel := context.WithCancel(context.Background())
+		servicecfg.CtxMap[key] = config.CtxS{
+			Ctx:    ctx,
+			Cancel: cancel,
+		}
+		lineCh, err := config.ReadLogByTail(filepath)
+		if err != nil {
+			fmt.Printf("tail 失败err:%v", err)
+			close(lineCh)
+			continue
+		}
+		SentMessage(ctx, servicecfg, lineCh)
+	}
+}
+func WatchEtcd(servicecfg *ServiceConfig) {
+	watchChan := servicecfg.EtcdCli.Watch(context.Background(), fmt.Sprintf("/%s", servicecfg.Cfg.Platform), etcdClient.WithPrefix())
+	for {
+		select {
+		case resp := <-watchChan:
+			for _, event := range resp.Events {
+				fi, err := os.Stat(string(event.Kv.Value))
+				if err != nil {
+
+				} else {
+					if fi.IsDir() {
+						fmt.Printf("这是一个目录，请重新配置\n")
+						continue
+					}
+				}
+				//删除之前的任务
+				if ctx, ok := servicecfg.CtxMap[string(event.Kv.Key)]; ok {
+					ctx.Cancel()
+					fmt.Printf("任务已取消%s%s\n", event.Kv.Key, event.Kv.Value)
+					delete(servicecfg.CtxMap, string(event.Kv.Key))
+
+				}
+				if event.Kv.Value == nil {
+					delete(servicecfg.LogCfg.LogPath, string(event.Kv.Key))
+					continue
+				}
+				servicecfg.LogCfg.LogPath[string(event.Kv.Key)] = string(event.Kv.Value)
+				//根据最新获取的etcd配置，执行任务
+				ctx, cancel := context.WithCancel(context.Background())
+				servicecfg.CtxMap[string(event.Kv.Key)] = config.CtxS{
+					Ctx:    ctx,
+					Cancel: cancel,
+				}
+
+				lineCh, err := config.ReadLogByTail(string(event.Kv.Value))
+				if err != nil {
+					fmt.Println("ReadLogByTail err:", err)
+					close(lineCh)
+					continue
+				}
+				fmt.Println(servicecfg.CtxMap, servicecfg.LogCfg.LogPath)
+				SentMessage(ctx, servicecfg, lineCh)
+			}
+		}
+	}
+}
+
 func getCommonCfgFromCmd() (cfg config.CommonConfig, err error) {
 	cfg = config.GetDefaultCommonConfig()
 	cfg.Endpoints = endpoints
 	//cfg.DialTimeout = dialtimeout
 	cfg.Platform = platform
+	cfg.Sendto = sendto
 	cfg.Address = address
 	return
 }
@@ -159,12 +245,14 @@ func getCommonCfg() (cfg config.CommonConfig, err error) {
 	cfg = config.CommonConfig{}
 	if cfgfile != "" {
 		cfg, err = config.GetCommonCfgFromIni(cfgfile)
+		fmt.Printf("get config from file.ini\n")
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 	} else {
 		cfg, err = getCommonCfgFromCmd()
+		fmt.Printf("get config from cmd\n")
 		if err != nil {
 			fmt.Println(err)
 			return

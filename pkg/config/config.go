@@ -14,6 +14,7 @@ type CommonConfig struct {
 	DialTimeout int64    `ini:"dialtimeout" json:"dialtimeout"`
 	//p
 	Platform string `ini:"platform" json:"platform"`
+	Sendto   string `ini:"sendto" json:"sendto"`
 	//kafka
 	Address []string `ini:"address" json:"address"`
 }
@@ -27,6 +28,7 @@ func GetDefaultCommonConfig() CommonConfig {
 		Endpoints:   []string{"172.16.1.200:2379"},
 		DialTimeout: 5,
 		Platform:    "system",
+		Sendto:      "kafka",
 		Address:     []string{"172.16.1.200:9092"},
 	}
 }
