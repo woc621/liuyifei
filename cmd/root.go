@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"liuyifei/pkg/config"
+	"liuyifei/pkg/util"
 	"log"
 	"os"
 
@@ -37,7 +38,7 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "", "config file of logagent")
+	rootCmd.PersistentFlags().StringVarP(&cfgfile, "config", "c", "", "config file of logagent") //d:/go/liuyifei/liuyifei.ini
 	rootCmd.PersistentFlags().StringVarP(&platform, "platform", "p", "system", "platform name")
 	rootCmd.PersistentFlags().StringSliceVarP(&endpoints, "etcd", "e", []string{"172.16.1.200:2379"}, "etcd endpoints eg 172.16.1.200:2379")
 	rootCmd.PersistentFlags().StringVarP(&sendto, "sendto", "", "kafka", "logs sendto who")
@@ -58,15 +59,27 @@ to quickly create a Cobra application.`,
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
 	Run: func(cmd *cobra.Command, args []string) {
-		//获取日志客户端配置文件
+		//初始化配置文件
+
 		cfg, err := getCommonCfg()
 		if err != nil {
 			log.Fatalf("获取配置文件失败!err:%v\n", err)
 		}
+
 		//从ETCD获取日志监控项
 		etcdcli, err := config.GetClientEtcd(cfg)
 		defer etcdcli.Close()
-		logcfg, err := cfg.GetLogCfg(etcdcli)
+		//如果没有获取到该设备mac下的日志配置，就用默认配置设置一次。
+		prefix := fmt.Sprintf("/%s/%s/%s", cfg.Os, cfg.Platform, cfg.Mac)
+		defaullogcfg, err := config.GetLogCfgByPrefix(prefix)
+		if len(defaullogcfg.LogPath) == 0 {
+			config.SetDefaultLogCfg()
+		}
+		//获取该设备下的日志配置
+		logcfg, err := config.GetLogCfg()
+		if err != nil {
+			return
+		}
 
 		//初始化contextMap,跟踪每个tail任务
 		ctxmap := make(map[string]config.CtxS)
@@ -87,6 +100,7 @@ to quickly create a Cobra application.`,
 		serviceCfg.CtxMap = ctxmap
 		serviceCfg.KafkaProducer = &kafkaproducer
 		serviceCfg.LogCfg = logcfg
+		fmt.Println("serviceCfg: ",serviceCfg)
 		StartSendMessage(serviceCfg)
 		WatchEtcd(serviceCfg)
 		// for key, filepath := range logcfg.LogPath {
@@ -155,18 +169,6 @@ func Execute() {
 		os.Exit(1)
 	}
 }
-
-func SentMessage(ctx context.Context, serviceCfg *ServiceConfig, lineCh chan *tail.Line) {
-	switch serviceCfg.Cfg.Sendto {
-	case "kafka":
-		fmt.Printf("发送日志到kafka\n")
-		go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
-	case "mysql":
-		fmt.Printf("发送日志到mysql功能暂未实现\n")
-	default:
-		//go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
-	}
-}
 func StartSendMessage(servicecfg *ServiceConfig) {
 	for key, filepath := range servicecfg.LogCfg.LogPath {
 		//fmt.Println(key, filepath)
@@ -185,20 +187,37 @@ func StartSendMessage(servicecfg *ServiceConfig) {
 		SentMessage(ctx, servicecfg, lineCh)
 	}
 }
+func SentMessage(ctx context.Context, serviceCfg *ServiceConfig, lineCh chan *tail.Line) {
+	switch serviceCfg.Cfg.Sendto {
+	case "kafka":
+		fmt.Printf("发送日志到kafka\n")
+		go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
+	case "mysql":
+		fmt.Printf("发送日志到mysql功能暂未实现\n")
+	default:
+		//go serviceCfg.KafkaProducer.SendToKafka(ctx, serviceCfg.Cfg.Platform, lineCh)
+	}
+}
+
 func WatchEtcd(servicecfg *ServiceConfig) {
-	watchChan := servicecfg.EtcdCli.Watch(context.Background(), fmt.Sprintf("/%s", servicecfg.Cfg.Platform), etcdClient.WithPrefix())
+	prefix := fmt.Sprintf("/%s/%s/%s", servicecfg.Cfg.Os, servicecfg.Cfg.Platform, servicecfg.Cfg.Mac)
+	fmt.Println("watch prefix:",prefix)
+	watchChan := servicecfg.EtcdCli.Watch(context.Background(), prefix, etcdClient.WithPrefix())
 	for {
 		select {
 		case resp := <-watchChan:
 			for _, event := range resp.Events {
-				fi, err := os.Stat(string(event.Kv.Value))
-				if err != nil {
+				// fi, err := os.Stat(string(event.Kv.Value))
+				// if err != nil {
 
-				} else {
-					if fi.IsDir() {
-						fmt.Printf("这是一个目录，请重新配置\n")
-						continue
-					}
+				// } else {
+				// 	if fi.IsDir() {
+				// 		fmt.Printf("这是一个目录，请重新配置\n")
+				// 		continue
+				// 	}
+				// }
+				if util.IsDir(string(event.Kv.Value)) {
+					continue
 				}
 				//删除之前的任务
 				if ctx, ok := servicecfg.CtxMap[string(event.Kv.Key)]; ok {
@@ -246,6 +265,7 @@ func getCommonCfgFromCmd() (cfg config.CommonConfig, err error) {
 
 func getCommonCfg() (cfg config.CommonConfig, err error) {
 	cfg = config.CommonConfig{}
+
 	if cfgfile != "" {
 		cfg, err = config.GetCommonCfgFromIni(cfgfile)
 		fmt.Printf("get config from file.ini\n")
@@ -261,5 +281,7 @@ func getCommonCfg() (cfg config.CommonConfig, err error) {
 			return
 		}
 	}
+	cfg.SystemInfo = config.GetSystemInfo(cfg.Endpoints)
+	config.CommonCfg = cfg
 	return
 }

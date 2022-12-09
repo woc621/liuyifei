@@ -10,5 +10,6 @@ type ServiceConfig struct {
 	EtcdCli *etcdClient.Client
 	CtxMap  map[string]config.CtxS
 	KafkaProducer *config.KafkaProducer
-	LogCfg  config.LogConfig
+	LogCfg  config.LogCfg
+	config.SystemInfo
 }

@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-
 	"github.com/go-ini/ini"
 	//"json/encoding"
 )
@@ -17,7 +16,9 @@ type CommonConfig struct {
 	Sendto   string `ini:"sendto" json:"sendto"`
 	//kafka
 	Address []string `ini:"address" json:"address"`
+	SystemInfo 
 }
+var CommonCfg = CommonConfig{}
 type CtxS struct {
 	Ctx    context.Context
 	Cancel context.CancelFunc
@@ -30,6 +31,7 @@ func GetDefaultCommonConfig() CommonConfig {
 		Platform:    "system",
 		Sendto:      "kafka",
 		Address:     []string{"172.16.1.200:9092"},
+		SystemInfo: SystemInfo{},
 	}
 }
 
